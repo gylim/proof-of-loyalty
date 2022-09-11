@@ -4,16 +4,24 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "webpack-dev-server --mode development",
+    "react build": "webpack --mode production",
     "test": "hardhat test",
     "build": "hardhat compile"
   },
   "devDependencies": {
+    "@babel/cli": "^7.18.10",
+    "@babel/core": "^7.19.0",
+    "@babel/preset-env": "^7.19.0",
+    "@babel/preset-react": "^7.18.6",
     "@nomicfoundation/hardhat-toolbox": "^1.0.2",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
     "@nomiclabs/hardhat-etherscan": "^3.0.4",
     "@nomiclabs/hardhat-waffle": "^2.0.3",
     "@superfluid-finance/sdk-core": "^0.4.4",
+    "babel-loader": "^8.2.5",
     "chai": "^4.3.6",
+    "css-loader": "^6.7.1",
     "dotenv": "^16.0.1",
     "ethereum-waffle": "^3.4.4",
     "ethers": "^5.6.8",
@@ -21,10 +29,18 @@
     "hardhat": "^2.9.7",
     "hardhat-gas-reporter": "^1.0.8",
     "solhint": "^3.3.7",
-    "solidity-coverage": "^0.7.21"
+    "solidity-coverage": "^0.7.21",
+    "style-loader": "^3.3.1",
+    "webpack": "^5.74.0",
+    "webpack-cli": "^4.10.0",
+    "webpack-dev-server": "^4.11.0"
   },
   "dependencies": {
-    "@superfluid-finance/ethereum-contracts": "^1.3.1"
+    "@pmmmwh/react-refresh-webpack-plugin": "^0.5.7",
+    "@superfluid-finance/ethereum-contracts": "^1.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-refresh": "^0.14.0"
   },
   "keywords": [],
   "author": "",

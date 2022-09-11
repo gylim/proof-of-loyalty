@@ -3,6 +3,9 @@ pragma solidity ^0.8.14;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+import "https://github.com/UMAprotocol/protocol/blob/master/packages/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
+
 import {ISuperfluid, ISuperToken, ISuperApp} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {ISuperfluidToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluidToken.sol";
 import {ISuperTokenFactory} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperTokenFactory.sol";
@@ -20,9 +23,18 @@ contract ProofOfLoyalty {
     address public owner;
     uint public startDate;
     uint public endDate;
+    uint public duration;
     uint public perParticipant;
     uint public maxParticipants;
     uint public numParticipants = 0;
+    int96 private flowRate;
+
+    struct details {
+        uint registerTime;
+        uint endDate;
+        string twitterHandle;
+    }
+    mapping(address => details) public participantDetails;
 
     /// @notice CFA Library.
     using CFAv1Library for CFAv1Library.InitData;
@@ -43,11 +55,6 @@ contract ProofOfLoyalty {
 
     // Use the yes no idetifier to ask arbitary questions, such as the weather on a particular day.
     bytes32 identifier = bytes32("YES_OR_NO_QUERY");
-
-    // Post the question in ancillary data. Real world prediction market would be slightly more complex and conform to a more robust structure.
-    bytes ancillaryData = bytes("Q:Is user xxx a bot? A:1 for yes. 0 for no.");
-
-    uint256 private requestTime
 
     constructor(ISuperfluid _host, address _owner) {
         assert(address(_host) != address(0));
@@ -84,37 +91,42 @@ contract ProofOfLoyalty {
 
     /// @notice Send a lump sum of super tokens into the contract. @dev This requires a super token ERC20 approval.
     /// @param _token Super Token to transfer. @param _amount Amount to transfer. @param _maxAmt reward per participant
-    /// @param _startDate commencement of campaign, @param _endDate last day of campaign
-    function commenceCampaign(ISuperToken _token, uint _amount, uint _maxAmt, uint _startDate, uint _endDate) external {
+    /// @param _startDate commencement of campaign, @param _endDate last day for registering, @param _duration length of campaign
+    function commenceCampaign(ISuperToken _token, uint _amount, uint _maxAmt, uint _startDate, uint _endDate, uint _duration) external {
         require (_startDate < _endDate);
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
         _token.transferFrom(msg.sender, address(this), _amount);
-        // Initialise parameters of campaign
+        // Initialise parameters of campaign, calculate flow rate
         perParticipant = _maxAmt;
         maxParticipants = _amount / _maxAmt;
         startDate = _startDate;
         endDate = _endDate;
+        duration = _duration;
+        flowRate = toInt96(int(perParticipant / duration));
         // IDA activated for token after lumpsum transferred in
         rewardToken = _token;
         idaV1.createIndex(rewardToken, INDEX_ID);
     }
 
     /// @notice Self-help registration for airdrop/marketing campaign
-    function subscribeAirdrop() external {
+    function subscribeAirdrop(string calldata _twitterHandle) external {
         // check that campaign started, hasn't ended & there is still space for new registrants
         require(block.timestamp > startDate);
         require(block.timestamp < endDate);
         require(numParticipants < maxParticipants);
-        // calculate flowRate and initialise stream
-        int96 flowRate = toInt96(int(perParticipant / (endDate - block.timestamp)));
         cfaV1.createFlow(msg.sender, rewardToken, flowRate);
         // Get current units subscriber holds
         (, , uint256 currentUnitsHeld, ) = idaV1.getSubscription(rewardToken, address(this), INDEX_ID, msg.sender);
         // Update to current amount + 1
         idaV1.updateSubscriptionUnits(rewardToken, INDEX_ID, msg.sender, uint128(currentUnitsHeld + 1));
-        // increment participants
+        // increment participants and record details
         numParticipants += 1;
+        participantDetails[msg.sender].registerTime = block.timestamp;
+        participantDetails[msg.sender].endDate = block.timestamp + duration;
+        participantDetails[msg.sender].twitterHandle = _twitterHandle;
+        // trigger UMA oracle to check if the user is real
+        requestPrice(participantDetails[msg.sender].registerTime, participantDetails[msg.sender].twitterHandle);
     }
 
     /// @notice Delete flow from contract to specified address.
@@ -126,7 +138,7 @@ contract ProofOfLoyalty {
         idaV1.deleteSubscription(rewardToken, address(this), INDEX_ID, receiver);
     }
 
-    /// @notice lets an account lose a single distribution unit
+    /// @notice MIGHT NOT NEED lets an account lose a single distribution unit
     /// @param receiver subscriber address whose units are to be decremented
     function loseShare(address receiver) public {
         // Get current units subscriber holds
@@ -153,26 +165,28 @@ contract ProofOfLoyalty {
     /* * * * * * * * * *  * */
 
     // Submit a data request to the Optimistic oracle.
-    function requestPrice() public {
-        requestTime = block.timestamp; // Set the request time to the current block time.
+    function requestPrice(uint requestTime, string calldata _userAccount) public {
         IERC20 bondCurrency = IERC20(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6); // Use Görli WETH as the bond currency.
         uint256 reward = 0; // Set the reward to 0 (so we dont have to fund it from this contract).
 
-        // Now, make the price request to the Optimistic oracle and set the liveness to 30 so it will settle quickly.
+        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
+
+        // make request to Optimistic oracle and set liveness to 1 day
         oo.requestPrice(identifier, requestTime, ancillaryData, bondCurrency, reward);
-        oo.setCustomLiveness(identifier, requestTime, ancillaryData, 30);
+        oo.setCustomLiveness(identifier, requestTime, ancillaryData, 86400);
     }
 
-    // Settle the request once it's gone through the liveness period of 30 seconds. This acts the finalize the voted on price.
-    // In a real world use of the Optimistic Oracle this should be longer to give time to disputers to catch bat price proposals.
-    function settleRequest() public {
+    // Settle the request once it's gone through the liveness period. This acts to finalize the voted on outcome.
+    function settleRequests(uint requestTime, string calldata  _userAccount) public {
+        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
         oo.settle(address(this), identifier, requestTime, ancillaryData);
     }
 
     // Fetch the resolved price from the Optimistic oracle that was settled.
-    function getSettledPrice() public view returns (int256) {
+    function getSettledPrice(uint requestTime, string calldata _userAccount) public view returns (int256) {
+        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
         return oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
-
+    }
 
     /* * * * * * * * * */
     /* ADMIN FUNCTIONS */
