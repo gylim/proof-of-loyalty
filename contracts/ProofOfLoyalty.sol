@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.14;
 
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-import "https://github.com/UMAprotocol/protocol/blob/master/packages/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
+import {OptimisticOracleV2Interface} from "@uma/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
 
 import {ISuperfluid, ISuperToken, ISuperApp} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {ISuperfluidToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluidToken.sol";
 import {ISuperTokenFactory} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperTokenFactory.sol";
 import {IConstantFlowAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import {CFAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/apps/CFAv1Library.sol";
-import {IInstantDistributionAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
+import {IInstantDistributionAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IInstantDistributionAgreementV1.sol";
 import {IDAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/apps/IDAv1Library.sol";
 
 error Unauthorized();
@@ -27,7 +27,7 @@ contract ProofOfLoyalty {
     uint public perParticipant;
     uint public maxParticipants;
     uint public numParticipants = 0;
-    int96 private flowRate;
+    int96 public flowRate;
 
     struct details {
         uint registerTime;
@@ -50,43 +50,47 @@ contract ProofOfLoyalty {
     /// @notice Super Token Factory
     ISuperTokenFactory public stf;
 
-    // Create an Optimistic oracle instance at the deployed address on Kovan.
-    OptimisticOracleV2Interface oo = OptimisticOracleV2Interface(0xA5B9d8a0B0Fa04Ba71BDD68069661ED5C0848884);
+    /// @notice Optimistic Oracle Interface
+    OptimisticOracleV2Interface public oo;
+    bytes32 private identifier = bytes32("YES_OR_NO_QUERY"); // Use the yes no idetifier to ask arbitary questions
+    IERC20 public bondCurrency = IERC20(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6); // Use Görli WETH as the bond currency.
+    uint256 public reward = 0; // Set the reward to 0 (so we dont have to fund it from this contract).
 
-    // Use the yes no idetifier to ask arbitary questions, such as the weather on a particular day.
-    bytes32 identifier = bytes32("YES_OR_NO_QUERY");
-
-    constructor(ISuperfluid _host, address _owner) {
+    constructor(ISuperfluid _host, address _owner, address _ooAddress) {
         assert(address(_host) != address(0));
         owner = _owner;
 
         // Initialise CFA Library
-        cfaV1 = CFAv1Library.InitData(host, IConstantFlowAgreementV1(
-                address(_host.getAgreementClass(keccak256(
-                    "org.superfluid-finance.agreements.ConstantFlowAgreement.v1")))
-            )
-        );
+        cfaV1 = CFAv1Library.InitData(_host, IConstantFlowAgreementV1(
+                address(_host.getAgreementClass(keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")))));
 
         // Initialise Super Token Factory interface
         stf = ISuperTokenFactory(address(_host.getSuperTokenFactory()));
 
         // Initialise IDA library
         idaV1 = IDAv1Library.InitData(_host, IInstantDistributionAgreementV1(
-                address(_host.getAgreementClass(keccak256(
-                    "org.superfluid-finance.agreements.InstantDistributionAgreement.v1")))
-            )
-        );
+                address(_host.getAgreementClass(keccak256("org.superfluid-finance.agreements.InstantDistributionAgreement.v1")))));
+
+        // Initialise Optimistic Oracle interface
+        oo = OptimisticOracleV2Interface(_ooAddress);
     }
 
     /* * * * * * * * * * * * * * * * */
     /* CAMPAIGN SUPERFLUID FUNCTIONS */
     /* * * * * * * * * * * * * * * * */
 
-    /// @notice Create SuperToken from ERC20 if none exists on current network, frontend will check list of existing SuperTokens
+    /// @notice UTILITY FUNCTION Create SuperToken from ERC20 if none exists on current network, frontend will check list of existing SuperTokens
     function makeERC20SuperToken(IERC20 underlyingToken, uint8 underlyingDecimals,
-        Upgradability upgradability, string calldata name, string calldata symbol)
-        returns (ISuperToken superToken) {
-            return stf.createERC20Wrapper(underlyingToken, underlyingDecimals, upgradability, name, symbol);
+        ISuperTokenFactory.Upgradability upgradability, string calldata name, string calldata symbol) external returns (ISuperToken superToken) {
+            // assumes token being wrapped is the token to be used
+            rewardToken = stf.createERC20Wrapper(underlyingToken, underlyingDecimals, upgradability, name, symbol);
+            return rewardToken;
+    }
+
+    /// @notice UTILITY FUNCTION Wrap necessary amount of ERC20 to SuperTokens
+    function upgradeERC20SuperToken(IERC20 underlyingToken, ISuperToken superToken, uint amount) external {
+        underlyingToken.approve(address(superToken), amount);
+        superToken.upgrade(amount);
     }
 
     /// @notice Send a lump sum of super tokens into the contract. @dev This requires a super token ERC20 approval.
@@ -96,6 +100,7 @@ contract ProofOfLoyalty {
         require (_startDate < _endDate);
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
+        _token.approve(address(this), _amount);
         _token.transferFrom(msg.sender, address(this), _amount);
         // Initialise parameters of campaign, calculate flow rate
         perParticipant = _maxAmt;
@@ -103,7 +108,7 @@ contract ProofOfLoyalty {
         startDate = _startDate;
         endDate = _endDate;
         duration = _duration;
-        flowRate = toInt96(int(perParticipant / duration));
+        flowRate = SafeCast.toInt96(int(perParticipant / duration));
         // IDA activated for token after lumpsum transferred in
         rewardToken = _token;
         idaV1.createIndex(rewardToken, INDEX_ID);
@@ -133,12 +138,15 @@ contract ProofOfLoyalty {
     /// @param token Token to stop streaming. @param receiver Receiver of stream.
     function deleteSubscriber(ISuperfluidToken token, address receiver) public {
         // if (msg.sender != owner) revert Unauthorized();
-        cfaV1.deleteFlow(address(this), receiver, rewardToken); // does the third argument have to be a ISuperfluidToken?
+        cfaV1.deleteFlow(address(this), receiver, rewardToken);
         // remove shares of any leftover tokens
         idaV1.deleteSubscription(rewardToken, address(this), INDEX_ID, receiver);
+        // delete from list of participants
+        numParticipants -= 1;
+        delete participantDetails[receiver];
     }
 
-    /// @notice MIGHT NOT NEED lets an account lose a single distribution unit
+    /// @notice JUST-IN-CASE FUNCTION lets an account lose a single distribution unit
     /// @param receiver subscriber address whose units are to be decremented
     function loseShare(address receiver) public {
         // Get current units subscriber holds
@@ -165,26 +173,22 @@ contract ProofOfLoyalty {
     /* * * * * * * * * *  * */
 
     // Submit a data request to the Optimistic oracle.
-    function requestPrice(uint requestTime, string calldata _userAccount) public {
-        IERC20 bondCurrency = IERC20(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6); // Use Görli WETH as the bond currency.
-        uint256 reward = 0; // Set the reward to 0 (so we dont have to fund it from this contract).
-
-        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
-
-        // make request to Optimistic oracle and set liveness to 1 day
+    function requestPrice(uint requestTime, string storage _userAccount) internal {
+        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
+        // make request to Optimistic oracle and set liveness to 30s
         oo.requestPrice(identifier, requestTime, ancillaryData, bondCurrency, reward);
-        oo.setCustomLiveness(identifier, requestTime, ancillaryData, 86400);
+        oo.setCustomLiveness(identifier, requestTime, ancillaryData, 30);
     }
 
     // Settle the request once it's gone through the liveness period. This acts to finalize the voted on outcome.
     function settleRequests(uint requestTime, string calldata  _userAccount) public {
-        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
+        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
         oo.settle(address(this), identifier, requestTime, ancillaryData);
     }
 
     // Fetch the resolved price from the Optimistic oracle that was settled.
     function getSettledPrice(uint requestTime, string calldata _userAccount) public view returns (int256) {
-        bytes ancillaryData = bytes(string.concat("Q:Is user", _userAccount , "a legitimate account? A:1 for yes. 0 for no."));
+        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
         return oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
     }
 
