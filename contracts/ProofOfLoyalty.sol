@@ -31,10 +31,14 @@ contract ProofOfLoyalty {
 
     struct details {
         uint registerTime;
-        uint endDate;
+        uint endTime;
         string twitterHandle;
+        bool blacklist;
     }
     mapping(address => details) public participantDetails;
+
+    // for iterating to terminate stream on campaign completion
+    address[] public participantList;
 
     /// @notice CFA Library.
     using CFAv1Library for CFAv1Library.InitData;
@@ -87,20 +91,24 @@ contract ProofOfLoyalty {
             return rewardToken;
     }
 
-    /// @notice UTILITY FUNCTION Wrap necessary amount of ERC20 to SuperTokens
-    function upgradeERC20SuperToken(IERC20 underlyingToken, ISuperToken superToken, uint amount) external {
-        underlyingToken.approve(address(superToken), amount);
+    /// @notice UTILITY FUNCTION Wrap ERC20 to SuperTokens. @dev Requires ERC20 approve for superToken contract.
+    function upgradeERC20SuperToken(ISuperToken superToken, uint amount) external {
         superToken.upgrade(amount);
     }
 
-    /// @notice Send a lump sum of super tokens into the contract. @dev This requires a super token ERC20 approval.
+    /// @notice UTILITY FUNCTION Grant ERC20 approve
+    function approveERC20(IERC20 token, address custodian, uint amount) external {
+        (bool success, ) = address(token).call(abi.encodeWithSignature("approve(address,uint256)", custodian, amount));
+        require(success, "ERC20 token approval failed");
+    }
+
+    /// @notice Send a lump sum of super tokens into the contract. @dev Requires superToken ERC20 approve for this contract
     /// @param _token Super Token to transfer. @param _amount Amount to transfer. @param _maxAmt reward per participant
     /// @param _startDate commencement of campaign, @param _endDate last day for registering, @param _duration length of campaign
     function commenceCampaign(ISuperToken _token, uint _amount, uint _maxAmt, uint _startDate, uint _endDate, uint _duration) external {
         require (_startDate < _endDate);
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
-        _token.approve(address(this), _amount);
         _token.transferFrom(msg.sender, address(this), _amount);
         // Initialise parameters of campaign, calculate flow rate
         perParticipant = _maxAmt;
@@ -115,11 +123,12 @@ contract ProofOfLoyalty {
     }
 
     /// @notice Self-help registration for airdrop/marketing campaign
-    function subscribeAirdrop(string calldata _twitterHandle) external {
+    function subscribe(string calldata _twitterHandle) external {
         // check that campaign started, hasn't ended & there is still space for new registrants
-        require(block.timestamp > startDate);
-        require(block.timestamp < endDate);
-        require(numParticipants < maxParticipants);
+        require(block.timestamp > startDate, "Campaign has yet to begin");
+        require(block.timestamp < endDate, "Campaign has ended");
+        require(numParticipants < maxParticipants, "Campaign is fully subscribed");
+        require(particpantDetails[msg.sender].blacklist == false);
         cfaV1.createFlow(msg.sender, rewardToken, flowRate);
         // Get current units subscriber holds
         (, , uint256 currentUnitsHeld, ) = idaV1.getSubscription(rewardToken, address(this), INDEX_ID, msg.sender);
@@ -128,31 +137,34 @@ contract ProofOfLoyalty {
         // increment participants and record details
         numParticipants += 1;
         participantDetails[msg.sender].registerTime = block.timestamp;
-        participantDetails[msg.sender].endDate = block.timestamp + duration;
+        participantDetails[msg.sender].endTime = block.timestamp + duration;
         participantDetails[msg.sender].twitterHandle = _twitterHandle;
         // trigger UMA oracle to check if the user is real
         requestPrice(participantDetails[msg.sender].registerTime, participantDetails[msg.sender].twitterHandle);
     }
 
-    /// @notice Delete flow from contract to specified address.
+    /// @notice End flow for blacklisted users
     /// @param token Token to stop streaming. @param receiver Receiver of stream.
-    function deleteSubscriber(ISuperfluidToken token, address receiver) public {
+    function deleteSubscriber(address receiver) public {
         // if (msg.sender != owner) revert Unauthorized();
         cfaV1.deleteFlow(address(this), receiver, rewardToken);
         // remove shares of any leftover tokens
         idaV1.deleteSubscription(rewardToken, address(this), INDEX_ID, receiver);
         // delete from list of participants
         numParticipants -= 1;
-        delete participantDetails[receiver];
+        participantDetails[receiver].blacklist = true;
     }
 
-    /// @notice JUST-IN-CASE FUNCTION lets an account lose a single distribution unit
-    /// @param receiver subscriber address whose units are to be decremented
-    function loseShare(address receiver) public {
-        // Get current units subscriber holds
-        (, , uint256 currentUnitsHeld, ) = idaV1.getSubscription(rewardToken, address(this), INDEX_ID, receiver);
-        // Update to current amount - 1 (reverts if currentUnitsHeld - 1 < 0, so basically if currentUnitsHeld = 0)
-        idaV1.updateSubscriptionUnits(rewardToken, INDEX_ID, receiver, uint128(currentUnitsHeld - 1));
+    /// @notice FOR CHAINLINK KEEPERS. End flow for normal users
+    function endSubscription() internal {
+        // iterate through participants array
+        for (uint i=0; i<participantList.length; i++) {
+            address user = participantList[i];
+            if (participantDetails[user].endTime >= block.timestam
+            && participantDetails[user].blacklist == false) {
+                cfaV1.deleteFlow(address(this), user, rewardToken);
+            }
+        }
     }
 
     /// @notice Takes the remaining balance of rewardToken in contract and distributes it to unit holders w/ IDA
