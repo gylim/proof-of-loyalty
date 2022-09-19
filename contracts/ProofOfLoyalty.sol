@@ -56,9 +56,10 @@ contract ProofOfLoyalty {
 
     /// @notice Optimistic Oracle Interface
     OptimisticOracleV2Interface public oo;
-    bytes32 private identifier = bytes32("YES_OR_NO_QUERY"); // Use the yes no idetifier to ask arbitary questions
-    IERC20 public bondCurrency = IERC20(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6); // Use Görli WETH as the bond currency.
-    uint256 public reward = 0; // Set the reward to 0 (so we dont have to fund it from this contract).
+    bytes32 private identifier = bytes32("True or False"); // Use the yes no idetifier
+    IERC20 public ooBond; // Use Görli WETH as the bond currency.
+    uint256 public ooRewardAmt; // Bond reward
+    uint256 public ooLiveness;
 
     constructor(ISuperfluid _host, address _owner, address _ooAddress) {
         assert(address(_host) != address(0));
@@ -104,8 +105,14 @@ contract ProofOfLoyalty {
 
     /// @notice Send a lump sum of super tokens into the contract. @dev Requires superToken ERC20 approve for this contract
     /// @param _token Super Token to transfer. @param _amount Amount to transfer. @param _maxAmt reward per participant
-    /// @param _startDate commencement of campaign, @param _endDate last day for registering, @param _duration length of campaign
-    function commenceCampaign(ISuperToken _token, uint _amount, uint _maxAmt, uint _startDate, uint _endDate, uint _duration) external {
+    /// @param _startDate start of campaign, @param _endDate last day for subscribing, @param _duration length of campaign
+    /// @param _oracleBond bond currency for oracle, @param _oracleReward reward for answering oracle
+    /// @param _oracleLiveness time for challenges to oracle proposal
+    function commenceCampaign(
+        ISuperToken _token, uint _amount, uint _maxAmt,
+        uint _startDate, uint _endDate, uint _duration,
+        IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness,
+    ) external {
         require (_startDate < _endDate);
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
@@ -117,6 +124,9 @@ contract ProofOfLoyalty {
         endDate = _endDate;
         duration = _duration;
         flowRate = SafeCast.toInt96(int(perParticipant / duration));
+        ooRewardAmt = _oracleReward;
+        ooLiveness = _oracleLiveness;
+        ooBond = _oracleBond;
         // IDA activated for token after lumpsum transferred in
         rewardToken = _token;
         idaV1.createIndex(rewardToken, INDEX_ID);
@@ -139,6 +149,7 @@ contract ProofOfLoyalty {
         participantDetails[msg.sender].registerTime = block.timestamp;
         participantDetails[msg.sender].endTime = block.timestamp + duration;
         participantDetails[msg.sender].twitterHandle = _twitterHandle;
+        participantList.push(msg.sender);
         // trigger UMA oracle to check if the user is real
         requestPrice(participantDetails[msg.sender].registerTime, participantDetails[msg.sender].twitterHandle);
     }
@@ -160,7 +171,7 @@ contract ProofOfLoyalty {
         // iterate through participants array
         for (uint i=0; i<participantList.length; i++) {
             address user = participantList[i];
-            if (participantDetails[user].endTime >= block.timestam
+            if (participantDetails[user].endTime >= block.timestamp
             && participantDetails[user].blacklist == false) {
                 cfaV1.deleteFlow(address(this), user, rewardToken);
             }
@@ -187,9 +198,9 @@ contract ProofOfLoyalty {
     // Submit a data request to the Optimistic oracle.
     function requestPrice(uint requestTime, string storage _userAccount) internal {
         bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
-        // make request to Optimistic oracle and set liveness to 30s
-        oo.requestPrice(identifier, requestTime, ancillaryData, bondCurrency, reward);
-        oo.setCustomLiveness(identifier, requestTime, ancillaryData, 30);
+        // make request to Optimistic oracle
+        oo.requestPrice(identifier, requestTime, ancillaryData, ooBond, ooRewardAmt);
+        oo.setCustomLiveness(identifier, requestTime, ancillaryData, ooLiveness);
     }
 
     // Settle the request once it's gone through the liveness period. This acts to finalize the voted on outcome.
