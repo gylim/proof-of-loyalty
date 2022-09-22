@@ -5,6 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 
 import {OptimisticOracleV2Interface} from "@uma/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
 
@@ -18,7 +20,7 @@ import {IDAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/app
 
 error Unauthorized();
 
-contract ProofOfLoyalty is KeeperCompatibleInterface {
+contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
 
     using SafeCast for int96;
 
@@ -30,6 +32,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
     uint public maxParticipants;
     uint public numParticipants;
     uint public participantIndex;
+    uint private nextCheck;
     int96 public flowRate;
 
     struct details {
@@ -41,10 +44,9 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
         bool blacklist;
     }
     mapping(address => details) public participantDetails;
-    // mapping(address => mapping(string => details));
+    address[] private participantList; // for iterating to terminate stream on campaign completion
 
-    // for iterating to terminate stream on campaign completion
-    address[] private participantList;
+    ISuperTokenFactory public stf; // Super Token Factory
 
     /// @notice CFA Library.
     using CFAv1Library for CFAv1Library.InitData;
@@ -53,12 +55,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
     /// @notice IDA Library.
     using IDAv1Library for IDAv1Library.InitData;
     IDAv1Library.InitData public idaV1;
-
     uint32 public constant INDEX_ID = 0; // IDA index used for the ending distribution
     ISuperToken public rewardToken;
-
-    /// @notice Super Token Factory
-    ISuperTokenFactory public stf;
 
     /// @notice Optimistic Oracle Interface
     OptimisticOracleV2Interface public oo;
@@ -67,7 +65,20 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
     uint256 public ooRewardAmt; // bond reward
     uint256 public ooLiveness; // challenge period
 
-    constructor(ISuperfluid _host, address _owner, address _ooAddress) {
+    /// @notice Chainlink VRF
+    VRFCoordinatorV2Interface COORDINATOR;
+    uint64 private subscriptionId;
+    bytes32 private keyHash;
+    uint32 callbackGasLimit = 50000;
+    uint16 requestConfirmations = 3;
+    uint32 numWords = 1;
+    uint256 public randomNum;
+    uint256 public requestId;
+
+    constructor(
+        ISuperfluid _host, address _owner, address _ooAddress,
+        uint64 _subId, bytes32 _keyHash, address _vrfCoord) VRFConsumerBaseV2(_vrfCoord)
+    {
         assert(address(_host) != address(0));
         owner = _owner;
 
@@ -84,6 +95,11 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
 
         // Initialise Optimistic Oracle interface
         oo = OptimisticOracleV2Interface(_ooAddress);
+
+        // Initialise VRF interface
+        COORDINATOR = VRFCoordinatorV2Interface(_vrfCoord);
+        subscriptionId = _subId;
+        keyHash = _keyHash;
     }
 
     /* * * * * * * * * * * * * * * * */
@@ -119,7 +135,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
         uint _startDate, uint _endDate, uint _duration,
         IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness,
     ) external {
-        require (_startDate < _endDate);
+        require(_endDate >= _startDate + 86400, "End date must be at least 1 day after start");
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
         _token.transferFrom(msg.sender, address(this), _amount);
@@ -133,9 +149,12 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
         ooRewardAmt = _oracleReward;
         ooLiveness = _oracleLiveness;
         ooBond = _oracleBond;
+        nextCheck = startDate + 86400;
         // IDA activated for token after lumpsum transferred in
         rewardToken = _token;
         idaV1.createIndex(rewardToken, INDEX_ID);
+        // initiate first random word request
+        requestRandomWords();
     }
 
     /// @notice Self-help registration for airdrop/marketing campaign
@@ -258,16 +277,30 @@ contract ProofOfLoyalty is KeeperCompatibleInterface {
         }
     }
 
+    function requestRandomWords() internal {
+        requestId = COORDINATOR.requestRandomWords(keyHash, subscriptionId, requestConfirmations, callbackGasLimit, numWords);
+    }
+
+    function fulfillRandomWords(uint256 /* requestId */, uint256[] memory _randomNum) internal override {
+        // find a random num between 1 and 24 hours
+        randomNum = (_randomNum[0] % 86400) + 3600;
+    }
+
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         address[] memory streamEnded = checkStreamEnd();
-        upkeepNeeded = streamEnded.length > 0;
+        upkeepNeeded = streamEnded.length > 0 || block.timestamp >= nextCheck;
         performData = abi.encode(streamEnded);
         return (upkeepeNeeded, performData);
     }
 
     function performUpkeep(bytes calldata performData) external override {
-        address[] memory streamEnded = abi.decode(performData, (address[]));
-        endSubscription(streamEnded);
+        if (block.timestamp >= nextCheck) {
+            nextCheck += randomNum;
+            requestRandomWords();
+        } else {
+            address[] memory streamEnded = abi.decode(performData, (address[]));
+            endSubscription(streamEnded);
+        }
     }
 
     /* * * * * * * * * */
