@@ -4,6 +4,8 @@ pragma solidity ^0.8.14;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
+import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
+
 import {OptimisticOracleV2Interface} from "@uma/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
 
 import {ISuperfluid, ISuperToken, ISuperApp} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -16,7 +18,7 @@ import {IDAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/app
 
 error Unauthorized();
 
-contract ProofOfLoyalty {
+contract ProofOfLoyalty is KeeperCompatibleInterface {
 
     using SafeCast for int96;
 
@@ -26,19 +28,23 @@ contract ProofOfLoyalty {
     uint public duration;
     uint public perParticipant;
     uint public maxParticipants;
-    uint public numParticipants = 0;
+    uint public numParticipants;
+    uint public participantIndex;
     int96 public flowRate;
 
     struct details {
+        uint64 index;
         uint registerTime;
         uint endTime;
         string twitterHandle;
+        bool streamStatus;
         bool blacklist;
     }
     mapping(address => details) public participantDetails;
+    // mapping(address => mapping(string => details));
 
     // for iterating to terminate stream on campaign completion
-    address[] public participantList;
+    address[] private participantList;
 
     /// @notice CFA Library.
     using CFAv1Library for CFAv1Library.InitData;
@@ -58,8 +64,8 @@ contract ProofOfLoyalty {
     OptimisticOracleV2Interface public oo;
     bytes32 private identifier = bytes32("True or False"); // Use the yes no idetifier
     IERC20 public ooBond; // Use Görli WETH as the bond currency.
-    uint256 public ooRewardAmt; // Bond reward
-    uint256 public ooLiveness;
+    uint256 public ooRewardAmt; // bond reward
+    uint256 public ooLiveness; // challenge period
 
     constructor(ISuperfluid _host, address _owner, address _ooAddress) {
         assert(address(_host) != address(0));
@@ -145,10 +151,13 @@ contract ProofOfLoyalty {
         // Update to current amount + 1
         idaV1.updateSubscriptionUnits(rewardToken, INDEX_ID, msg.sender, uint128(currentUnitsHeld + 1));
         // increment participants and record details
-        numParticipants += 1;
+        participantDetails[msg.sender].index = participantIndex;
         participantDetails[msg.sender].registerTime = block.timestamp;
         participantDetails[msg.sender].endTime = block.timestamp + duration;
         participantDetails[msg.sender].twitterHandle = _twitterHandle;
+        participantDetails[msg.sender].streamStatus = true;
+        numParticipants += 1;
+        participantIndex += 1;
         participantList.push(msg.sender);
         // trigger UMA oracle to check if the user is real
         requestPrice(participantDetails[msg.sender].registerTime, participantDetails[msg.sender].twitterHandle);
@@ -164,18 +173,9 @@ contract ProofOfLoyalty {
         // delete from list of participants
         numParticipants -= 1;
         participantDetails[receiver].blacklist = true;
-    }
-
-    /// @notice FOR CHAINLINK KEEPERS. End flow for normal users
-    function endSubscription() internal {
-        // iterate through participants array
-        for (uint i=0; i<participantList.length; i++) {
-            address user = participantList[i];
-            if (participantDetails[user].endTime >= block.timestamp
-            && participantDetails[user].blacklist == false) {
-                cfaV1.deleteFlow(address(this), user, rewardToken);
-            }
-        }
+        participantDetails[receiver].streamStatus = false;
+        uint64 idx = participantDetails[receiver].index;
+        delete participantList[idx];
     }
 
     /// @notice Takes the remaining balance of rewardToken in contract and distributes it to unit holders w/ IDA
@@ -213,6 +213,61 @@ contract ProofOfLoyalty {
     function getSettledPrice(uint requestTime, string calldata _userAccount) public view returns (int256) {
         bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
         return oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
+    }
+
+    /* * * * * * * * *  */
+    /* KEEPER FUNCTIONS */
+    /*  * * * * * * * * */
+
+    /// @notice FOR CHAINLINK KEEPERS. Find subscribers whose streams have ended
+    function checkStreamEnd() public view returns (address[] memory) {
+        address[] memory allPtcpts = participantList;
+        address[] memory streamEnded = new address[](allPtcpts.length);
+        uint count = 0;
+        for (uint i=0; i<allPtcpts.length; i++) {
+            address user = allPtcpts[i];
+            if (user != address(0) &&
+                participantDetails[user].streamStatus == true &&
+                participantDetails[user].endTime >= block.timestamp
+            ) {
+                streamEnded[count] = user;
+                count++;
+            }
+        }
+        if (count != allPtcpts.length) {
+            assembly {
+                mstore(streamEnded, count)
+            }
+        }
+        return streamEnded;
+    }
+
+    /// @notice FOR CHAINLINK KEEPERS. End flow for normal users
+    function endSubscription(address[] memory streamEnded) public {
+        // iterate through participants array
+        for (uint i=0; i<streamEnded.length; i++) {
+            address user = streamEnded[i];
+            if (
+                user != address(0) &&
+                participantDetails[user].endTime >= block.timestamp &&
+                participantDetails[user].streamStatus == true
+            ) {
+                cfaV1.deleteFlow(address(this), user, rewardToken);
+                participantDetails[user].streamStatus = false;
+            }
+        }
+    }
+
+    function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
+        address[] memory streamEnded = checkStreamEnd();
+        upkeepNeeded = streamEnded.length > 0;
+        performData = abi.encode(streamEnded);
+        return (upkeepeNeeded, performData);
+    }
+
+    function performUpkeep(bytes calldata performData) external override {
+        address[] memory streamEnded = abi.decode(performData, (address[]));
+        endSubscription(streamEnded);
     }
 
     /* * * * * * * * * */
