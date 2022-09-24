@@ -10,7 +10,7 @@ contract PoLFactory {
   address[] public contracts;
 
   // useful to know the row count in contracts index
-  function getContractCount() public returns(uint contractCount) {
+  function getContractCount() public view returns(uint contractCount) {
     return contracts.length;
   }
 

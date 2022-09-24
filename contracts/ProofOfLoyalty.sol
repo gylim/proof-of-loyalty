@@ -136,7 +136,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         ooRewardAmt = _oracleReward;
         ooLiveness = _oracleLiveness;
         ooBond = _oracleBond;
-        nextCheck = startDate + 300;
+        nextCheck = (block.timestamp > startDate ? block.timestamp : startDate) + 300; // change to 86400 for actual
         rewardToken = _token;
         // initiate first random word request
         requestRandomWords();
@@ -265,7 +265,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     function requestFirstId() public returns (bytes32 _requestId) {
         Chainlink.Request memory req = buildChainlinkRequest(jobId, address(this), this.fulfill.selector);
         // replace url with mongo connected one
-        req.add('get', string(bytes.concat('https://nodeproofofloyalty.herokuapp.com/twitterapi/getunmatched?handle=', campaignHandle)));
+        req.add('get', string(string.concat('https://nodeproofofloyalty.herokuapp.com/twitterapi/getunmatched?handle=', campaignHandle)));
         req.add('path', 'name');
         // Sends the request
         return sendChainlinkRequest(req, fee);
