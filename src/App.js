@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Contract, ethers } from "ethers";
-import PoLFactoryABI from "../artifacts/contracts/PoLFactory.sol";
+import PoLABI from "../artifacts/contracts/ProofOfLoyalty.sol/ProofOfLoyalty.json";
 import addressList from "./addressList";
 import "./App.css";
 
@@ -8,9 +8,10 @@ function App () {
   const [account, setAccount] = useState("");
   const [isWalletInstalled, setIsWalletInstalled] = useState(false);
   const [currentNetwork, setCurrentNetwork] = useState("");
-  const [contractAddress, setContractAddress] = useState("");
-  const [PoLFactoryContract, setPoLFactoryContract] = useState(null);
+  const [PoLContract, setPoLContract] = useState(null);
   const [isDeploying, setIsDeploying] = useState(false);
+
+  const contractAddress = "0x9C3cF4D4Cb1D0476A871A49A4195E3351fffe5Bf";
 
   useEffect(() => {
     if (window.ethereum) {
@@ -22,12 +23,12 @@ function App () {
 
 
   useEffect(() => {
-    function initPoLFactory() {
+    function initPoL() {
       const provider = new ethers.providers.Web3Provider(window.ethereum);
       const signer = provider.getSigner();
-      setPoLFactoryContract(new Contract(contractAddress, PoLFactoryABI.abi, signer));
+      setPoLContract(new Contract(contractAddress, PoLABI.abi, signer));
     }
-    initPoLFactory();
+    initPoL();
   }, [account]);
 
   async function connectWallet() {
@@ -39,17 +40,17 @@ function App () {
     .catch((error) => {alert("Something went wrong")});
   }
 
-  async function deployContract(owner) {
-    setIsDeploying(true);
-    try {
-      const response = await PoLFactoryContract.newContract(addressList[currentNetwork].superfluidHost, owner, addressList[currentNetwork].uma);
-      alert(`Proof-of-Loyalty successfully deployed to: ${response}`)
-    } catch(err) {
-      alert(err);
-    } finally {
-      setIsDeploying(false);
-    }
-  }
+  // async function deployContract(owner) {
+  //   setIsDeploying(true);
+  //   try {
+  //     const response = await PoLContract.newContract(addressList[currentNetwork].superfluidHost, owner, addressList[currentNetwork].uma);
+  //     alert(`Proof-of-Loyalty successfully deployed to: ${response}`)
+  //   } catch(err) {
+  //     alert(err);
+  //   } finally {
+  //     setIsDeploying(false);
+  //   }
+  // }
 
   if (account === "") {
     return (
@@ -74,9 +75,11 @@ function App () {
           <h1>Proof of Loyalty</h1>
           <h2>Build a community of true fans</h2>
           <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
-          <button onClick={() => {deployContract()}}>
+          <button /* onClick={} */>
             Deploy new contract
           </button>
+          <p>Your current account is: {account}</p>
+          <p>Your current network ID is: {currentNetwork}</p>
         </div>
       </>
   );

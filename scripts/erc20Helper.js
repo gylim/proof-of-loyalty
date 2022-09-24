@@ -25,20 +25,20 @@ async function main() {
 
     // approve 50 mvt tokens to mvtx
     const mvtApprove = mvtx.approve({
-        receiver: "0x5C819F0415b4211300F6E1D1d85ee5a773B00312",
+        receiver: "0x9c3cf4d4cb1d0476a871a49a4195e3351fffe5bf",
         amount: ethers.utils.parseEther("50")
     });
 
     // print tx receipt
     await mvtApprove.exec(signers[0]).then(function (tx) {
-        console.log(`You've just successfully approved 0x5C819F0415b4211300F6E1D1d85ee5a773B00312 to spend 50 ${symbol}.
+        console.log(`You've just successfully approved the address to spend 50 ${symbol}.
         Tx Hash: ${tx.hash}`)
    })
 
     // check allowance of mvtx
     await mvtx.allowance({
         owner: signers[0].address,
-        spender: "0x5C819F0415b4211300F6E1D1d85ee5a773B00312",
+        spender: "0x9c3cf4d4cb1d0476a871a49a4195e3351fffe5bf",
         providerOrSigner: provider
     }).then((res) => {
         console.log(`The allowance for the spender is ${res}`)

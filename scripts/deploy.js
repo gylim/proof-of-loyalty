@@ -4,9 +4,6 @@ require("dotenv").config()
 
 // Run: npx hardhat run scripts/deploy.js --network <network-name>
 async function main() {
-    // If this script is run directly using `node` you may want to call compile
-    // manually to make sure everything is compiled
-    // await hre.run('compile');
 
     const provider = new hre.ethers.providers.JsonRpcProvider(
         process.env.GOERLI_URL
@@ -17,19 +14,22 @@ async function main() {
         provider
     })
 
-    const signers = await hre.ethers.getSigners()
-    // We get the contract to deploy
-    const ProofOfLoyalty = await hre.ethers.getContractFactory("ProofOfLoyalty")
-    //deploy the proof of loyalty contract
-    const proofOfLoyalty = await ProofOfLoyalty.deploy(
+    const [signer] = await hre.ethers.getSigners()
+    console.log('Deploying contract with account: ', signer.address);
+
+    const contract = await hre.ethers.getContractFactory("ProofOfLoyalty")
+    const newContract = await contract.deploy(
         sf.settings.config.hostAddress,
-        signers[0].address,
-        "0xA5B9d8a0B0Fa04Ba71BDD68069661ED5C0848884" // Optimistic Oracle Goerli address
+        signer.address,
+        "0xA5B9d8a0B0Fa04Ba71BDD68069661ED5C0848884", // Optimistic Oracle Goerli address
+        2315,
+        "0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15",
+        "0x2ca8e0c643bde4c2e08ab1fa0da3401adad7734d"
     )
 
-    await proofOfLoyalty.deployed()
+    await newContract.deployed()
 
-    console.log("Proof Of Loyalty deployed to:", proofOfLoyalty.address)
+    console.log("Contract deployed to:", newContract.address)
 }
 
 // We recommend this pattern to be able to use async/await everywhere

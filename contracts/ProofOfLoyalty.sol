@@ -7,20 +7,20 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
+import '@chainlink/contracts/src/v0.8/ChainlinkClient.sol';
+import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
 
 import {OptimisticOracleV2Interface} from "@uma/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
 
-import {ISuperfluid, ISuperToken, ISuperApp} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
+import {ISuperfluid, ISuperToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import {ISuperfluidToken} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluidToken.sol";
 import {ISuperTokenFactory} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperTokenFactory.sol";
 import {IConstantFlowAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import {CFAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/apps/CFAv1Library.sol";
-import {IInstantDistributionAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IInstantDistributionAgreementV1.sol";
-import {IDAv1Library} from "@superfluid-finance/ethereum-contracts/contracts/apps/IDAv1Library.sol";
 
 error Unauthorized();
 
-contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
+contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, ChainlinkClient {
 
     using SafeCast for int96;
 
@@ -31,8 +31,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     uint public perParticipant;
     uint public maxParticipants;
     uint public numParticipants;
-    uint public participantIndex;
-    uint private nextCheck;
+    uint64 public participantIndex;
+    uint public nextCheck; // to change to private for actual
     int96 public flowRate;
 
     struct details {
@@ -44,7 +44,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
         bool blacklist;
     }
     mapping(address => details) public participantDetails;
-    address[] private participantList; // for iterating to terminate stream on campaign completion
+    address[] public participantList; // to change to private for actual
+    mapping(string => address) public twitterToAddress;
 
     ISuperTokenFactory public stf; // Super Token Factory
 
@@ -52,15 +53,11 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     using CFAv1Library for CFAv1Library.InitData;
     CFAv1Library.InitData public cfaV1;
 
-    /// @notice IDA Library.
-    using IDAv1Library for IDAv1Library.InitData;
-    IDAv1Library.InitData public idaV1;
-    uint32 public constant INDEX_ID = 0; // IDA index used for the ending distribution
     ISuperToken public rewardToken;
 
     /// @notice Optimistic Oracle Interface
     OptimisticOracleV2Interface public oo;
-    bytes32 private identifier = bytes32("True or False"); // Use the yes no idetifier
+    bytes32 private identifier = bytes32("YES_OR_NO_QUERY"); // Use the yes no idetifier
     IERC20 public ooBond; // Use Görli WETH as the bond currency.
     uint256 public ooRewardAmt; // bond reward
     uint256 public ooLiveness; // challenge period
@@ -76,7 +73,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     uint256 public requestId;
 
     constructor(
-        ISuperfluid _host, address _owner, address _ooAddress,
+        ISuperfluid _host, address _owner, address _ooAddress ,
         uint64 _subId, bytes32 _keyHash, address _vrfCoord) VRFConsumerBaseV2(_vrfCoord)
     {
         assert(address(_host) != address(0));
@@ -88,10 +85,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
 
         // Initialise Super Token Factory interface
         stf = ISuperTokenFactory(address(_host.getSuperTokenFactory()));
-
-        // Initialise IDA library
-        idaV1 = IDAv1Library.InitData(_host, IInstantDistributionAgreementV1(
-                address(_host.getAgreementClass(keccak256("org.superfluid-finance.agreements.InstantDistributionAgreement.v1")))));
 
         // Initialise Optimistic Oracle interface
         oo = OptimisticOracleV2Interface(_ooAddress);
@@ -120,8 +113,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     }
 
     /// @notice UTILITY FUNCTION Grant ERC20 approve
-    function approveERC20(IERC20 token, address custodian, uint amount) external {
-        (bool success, ) = address(token).call(abi.encodeWithSignature("approve(address,uint256)", custodian, amount));
+    function approveERC20(address token, address custodian, uint amount) external {
+        (bool success, ) = token.call(abi.encodeWithSignature("approve(address,uint256)", custodian, amount));
         require(success, "ERC20 token approval failed");
     }
 
@@ -133,7 +126,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     function commenceCampaign(
         ISuperToken _token, uint _amount, uint _maxAmt,
         uint _startDate, uint _endDate, uint _duration,
-        IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness,
+        IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness
     ) external {
         require(_endDate >= _startDate + 86400, "End date must be at least 1 day after start");
         if (msg.sender != owner) revert Unauthorized();
@@ -149,10 +142,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
         ooRewardAmt = _oracleReward;
         ooLiveness = _oracleLiveness;
         ooBond = _oracleBond;
-        nextCheck = startDate + 86400;
-        // IDA activated for token after lumpsum transferred in
+        nextCheck = startDate + 300;
         rewardToken = _token;
-        idaV1.createIndex(rewardToken, INDEX_ID);
         // initiate first random word request
         requestRandomWords();
     }
@@ -163,18 +154,17 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
         require(block.timestamp > startDate, "Campaign has yet to begin");
         require(block.timestamp < endDate, "Campaign has ended");
         require(numParticipants < maxParticipants, "Campaign is fully subscribed");
-        require(particpantDetails[msg.sender].blacklist == false);
+        require(participantDetails[msg.sender].blacklist == false);
         cfaV1.createFlow(msg.sender, rewardToken, flowRate);
         // Get current units subscriber holds
         (, , uint256 currentUnitsHeld, ) = idaV1.getSubscription(rewardToken, address(this), INDEX_ID, msg.sender);
-        // Update to current amount + 1
-        idaV1.updateSubscriptionUnits(rewardToken, INDEX_ID, msg.sender, uint128(currentUnitsHeld + 1));
         // increment participants and record details
         participantDetails[msg.sender].index = participantIndex;
         participantDetails[msg.sender].registerTime = block.timestamp;
         participantDetails[msg.sender].endTime = block.timestamp + duration;
         participantDetails[msg.sender].twitterHandle = _twitterHandle;
         participantDetails[msg.sender].streamStatus = true;
+        twitterToAddress[_twitterHandle] = msg.sender;
         numParticipants += 1;
         participantIndex += 1;
         participantList.push(msg.sender);
@@ -183,31 +173,16 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
     }
 
     /// @notice End flow for blacklisted users
-    /// @param token Token to stop streaming. @param receiver Receiver of stream.
+    /// @param receiver Receiver of stream.
     function deleteSubscriber(address receiver) public {
         // if (msg.sender != owner) revert Unauthorized();
         cfaV1.deleteFlow(address(this), receiver, rewardToken);
-        // remove shares of any leftover tokens
-        idaV1.deleteSubscription(rewardToken, address(this), INDEX_ID, receiver);
         // delete from list of participants
         numParticipants -= 1;
         participantDetails[receiver].blacklist = true;
         participantDetails[receiver].streamStatus = false;
         uint64 idx = participantDetails[receiver].index;
         delete participantList[idx];
-    }
-
-    /// @notice Takes the remaining balance of rewardToken in contract and distributes it to unit holders w/ IDA
-    function distribute() external {
-        // check campaign has ended and caller is owner
-        require(block.timestamp > endDate);
-        if (msg.sender != owner) revert Unauthorized();
-        // distribute tokens
-        uint256 rewardTokenBalance = rewardToken.balanceOf(address(this));
-        (uint256 actualDistributionAmount, ) = idaV1.ida.calculateDistribution(
-            rewardToken, address(this), INDEX_ID, rewardTokenBalance
-        );
-        idaV1.distribute(rewardToken, INDEX_ID, actualDistributionAmount);
     }
 
     /*  * * * * * * * * * * */
@@ -228,10 +203,14 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
         oo.settle(address(this), identifier, requestTime, ancillaryData);
     }
 
-    // Fetch the resolved price from the Optimistic oracle that was settled.
-    function getSettledPrice(uint requestTime, string calldata _userAccount) public view returns (int256) {
+    // Fetch the resolved price from Optimistic oracle and kick fake users.
+    function getResultAndDelete(uint requestTime, string calldata _userAccount) public {
         bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
-        return oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
+        int256 outcome = oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
+        if (outcome == int256(1)) {
+            address faker = twitterToAddress[_userAccount];
+            deleteSubscriber(faker);
+        }
     }
 
     /* * * * * * * * *  */
@@ -283,20 +262,23 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2 {
 
     function fulfillRandomWords(uint256 /* requestId */, uint256[] memory _randomNum) internal override {
         // find a random num between 1 and 24 hours
-        randomNum = (_randomNum[0] % 86400) + 3600;
+        // randomNum = (_randomNum[0] % 86400) + 3600;
+        // find a random num between 5 and 10 min
+        randomNum = (_randomNum[0] % 600) + 300;
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         address[] memory streamEnded = checkStreamEnd();
         upkeepNeeded = streamEnded.length > 0 || block.timestamp >= nextCheck;
         performData = abi.encode(streamEnded);
-        return (upkeepeNeeded, performData);
+        return (upkeepNeeded, performData);
     }
 
     function performUpkeep(bytes calldata performData) external override {
         if (block.timestamp >= nextCheck) {
             nextCheck += randomNum;
             requestRandomWords();
+            // call twitter
         } else {
             address[] memory streamEnded = abi.decode(performData, (address[]));
             endSubscription(streamEnded);

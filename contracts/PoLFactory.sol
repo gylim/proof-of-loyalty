@@ -15,9 +15,12 @@ contract PoLFactory {
   }
 
   // deploy a new contract
-  function newContract(ISuperfluid _host, address _owner, address _ooAddress) external returns(address newContract) {
-    ProofOfLoyalty contract = new ProofOfLoyalty(_host, _owner, _ooAddress);
-    contracts.push(contract);
-    return contract;
+  function deployNewContract(
+      ISuperfluid _host, address _owner, address _ooAddress,
+      uint64 _subId, bytes32 _keyHash, address _vrfCoord
+    ) external returns(address newContract) {
+        ProofOfLoyalty pol = new ProofOfLoyalty(_host, _owner, _ooAddress, _subId, _keyHash, _vrfCoord);
+        contracts.push(address(pol));
+        return address(pol);
   }
 }
