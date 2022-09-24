@@ -25,24 +25,15 @@ async function main() {
 
     // approve amount tokens to superToken
     const stApprove = superToken.approve({
-        receiver: "0x96046328135f3aFC46cC8a82CA9E472f5cE1E2Ff", //
+        receiver: "0x0649cEc7f0EE517C7b422689cB9375b18B4AD3FA", //
         amount: ethers.utils.parseEther("300000")
     });
 
     // print tx receipt
     await stApprove.exec(signers[0]).then(function (tx) {
-        console.log(`You've just successfully approved the address to spend 50 ${symbol}.
+        console.log(`You've just successfully approved the address to spend 300000 ${symbol}.
         Tx Hash: ${tx.hash}`)
    })
-
-    // check allowance of superToken
-    await superToken.allowance({
-        owner: signers[0].address,
-        spender: "0x9c3cf4d4cb1d0476a871a49a4195e3351fffe5bf",
-        providerOrSigner: provider
-    }).then((res) => {
-        console.log(`The allowance for the spender is ${res}`)
-    })
 
 }
 

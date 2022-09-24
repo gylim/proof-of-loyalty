@@ -8,7 +8,6 @@ import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 import '@chainlink/contracts/src/v0.8/ChainlinkClient.sol';
-// import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
 
 import "../utils/strings.sol";
 
@@ -266,7 +265,7 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     function requestFirstId() public returns (bytes32 _requestId) {
         Chainlink.Request memory req = buildChainlinkRequest(jobId, address(this), this.fulfill.selector);
         // replace url with mongo connected one
-        req.add('get', string.concat('https://nodeproofofloyalty.herokuapp.com/twitterapi/getunmatched?handle=', campaignHandle));
+        req.add('get', string(bytes.concat('https://nodeproofofloyalty.herokuapp.com/twitterapi/getunmatched?handle=', campaignHandle)));
         req.add('path', 'name');
         // Sends the request
         return sendChainlinkRequest(req, fee);
@@ -281,8 +280,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         string[] memory parts = new string[](s.count(delim) + 1);
         for (uint i=0; i<parts.length; i++) {
             parts[i] = s.split(delim).toString();
-            // string memory acct = parts[i];
-            // address faker = twitterToAddress[acct];
             deleteSubscriber(twitterToAddress[parts[i]]);
         }
     }
