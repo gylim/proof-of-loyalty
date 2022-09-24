@@ -51,8 +51,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     address[] public participantList; // to change to private for actual
     mapping(string => address) public twitterToAddress;
 
-    ISuperTokenFactory public stf; // Super Token Factory
-
     /// @notice CFA Library.
     using CFAv1Library for CFAv1Library.InitData;
     CFAv1Library.InitData public cfaV1;
@@ -94,9 +92,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         cfaV1 = CFAv1Library.InitData(_host, IConstantFlowAgreementV1(
                 address(_host.getAgreementClass(keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")))));
 
-        // Initialise Super Token Factory interface
-        stf = ISuperTokenFactory(address(_host.getSuperTokenFactory()));
-
         // Initialise Optimistic Oracle interface
         oo = OptimisticOracleV2Interface(_ooAddress);
 
@@ -115,25 +110,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     /* * * * * * * * * * * * * * * * */
     /* CAMPAIGN SUPERFLUID FUNCTIONS */
     /* * * * * * * * * * * * * * * * */
-
-    /// @notice UTILITY FUNCTION Create SuperToken from ERC20 if none exists on current network, frontend will check list of existing SuperTokens
-    function makeERC20SuperToken(IERC20 underlyingToken, uint8 underlyingDecimals,
-        ISuperTokenFactory.Upgradability upgradability, string calldata name, string calldata symbol) external returns (ISuperToken superToken) {
-            // assumes token being wrapped is the token to be used
-            rewardToken = stf.createERC20Wrapper(underlyingToken, underlyingDecimals, upgradability, name, symbol);
-            return rewardToken;
-    }
-
-    /// @notice UTILITY FUNCTION Wrap ERC20 to SuperTokens. @dev Requires ERC20 approve for superToken contract.
-    function upgradeERC20SuperToken(ISuperToken superToken, uint amount) external {
-        superToken.upgrade(amount);
-    }
-
-    /// @notice UTILITY FUNCTION Grant ERC20 approve
-    function approveERC20(address token, address custodian, uint amount) external {
-        (bool success, ) = token.call(abi.encodeWithSignature("approve(address,uint256)", custodian, amount));
-        require(success, "ERC20 token approval failed");
-    }
 
     /// @notice Send a lump sum of super tokens into the contract. @dev Requires superToken ERC20 approve for this contract
     /// @param _token Super Token to transfer. @param _amount Amount to transfer. @param _maxAmt reward per participant
