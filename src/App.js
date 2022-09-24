@@ -2,9 +2,11 @@ import React, { useEffect, useState } from "react";
 import { Contract, ethers } from "ethers";
 import PoLABI from "../artifacts/contracts/ProofOfLoyalty.sol/ProofOfLoyalty.json";
 import addressList from "./addressList";
+import Button from 'react-bootstrap/Button';
 import "./App.css";
+import CreateProject from "./components/CreateProject";
 
-function App () {
+function App() {
   const [account, setAccount] = useState("");
   const [isWalletInstalled, setIsWalletInstalled] = useState(false);
   const [currentNetwork, setCurrentNetwork] = useState("");
@@ -32,12 +34,12 @@ function App () {
   }, [account]);
 
   async function connectWallet() {
-    window.ethereum.request({method: "eth_requestAccounts",})
-    .then((accounts) => {
-      setAccount(accounts[0])
-      console.log(account)
-    })
-    .catch((error) => {alert("Something went wrong")});
+    window.ethereum.request({ method: "eth_requestAccounts", })
+      .then((accounts) => {
+        setAccount(accounts[0])
+        console.log(account)
+      })
+      .catch((error) => { alert("Something went wrong") });
   }
 
   // async function deployContract(owner) {
@@ -52,36 +54,42 @@ function App () {
   //   }
   // }
 
-  if (account === "") {
-    return (
-      <>
-        <div className='container'>
-          <br/>
-          <h1>Proof of Loyalty</h1>
-          <h2>Build a community of true fans</h2>
-          <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
-          {isWalletInstalled ?
-          (<button onClick={connectWallet}>Connect Wallet</button>) :
-          (<p>Install MetaMask</p>)}
-        </div>
-      </>
-    );
-  }
+  // if (account === "") {
+  //   return (
+  //     <>
+  //       <div className='container'>
+  //         <br />
+  //         <h1>Proof of Loyalty</h1>
+  //         <h2>Build a community of true fans</h2>
+  //         <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
+  //         {isWalletInstalled ?
+  //           (<Button onClick={connectWallet}>Connect Wallet</Button>) :
+  //           (<p>Install MetaMask</p>)}
+  //       </div>
+  //     </>
+  //   );
+  // }
 
-  return(
+  return (
     <>
-        <div className='container'>
-          <br/>
-          <h1>Proof of Loyalty</h1>
-          <h2>Build a community of true fans</h2>
-          <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
-          <button /* onClick={} */>
-            Deploy new contract
-          </button>
-          <p>Your current account is: {account}</p>
-          <p>Your current network ID is: {currentNetwork}</p>
-        </div>
-      </>
+      <div className='container'>
+        <br />
+        {isWalletInstalled && !account ?
+          (<Button onClick={connectWallet}>Connect Wallet</Button>) :
+          (!account ? (<p>Install MetaMask</p>) : "")}
+        <h1>Proof of Loyalty</h1>
+        <h2>Build a community of true fans</h2>
+        <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
+        <Button /* onClick={} */>
+          Deploy new contract
+        </Button>
+        <p>Your current account is: {account}</p>
+        <p>Your current network ID is: {currentNetwork}</p>
+
+        <CreateProject polContract={PoLContract} account={account} />
+      </div>
+
+    </>
   );
 }
 
