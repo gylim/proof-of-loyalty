@@ -8,7 +8,9 @@ import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 import '@chainlink/contracts/src/v0.8/ChainlinkClient.sol';
-import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
+// import '@chainlink/contracts/src/v0.8/ConfirmedOwner.sol';
+
+import "../utils/strings.sol";
 
 import {OptimisticOracleV2Interface} from "@uma/core/contracts/oracle/interfaces/OptimisticOracleV2Interface.sol";
 
@@ -23,8 +25,10 @@ error Unauthorized();
 contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, ChainlinkClient {
 
     using SafeCast for int96;
+    using strings for *;
 
     address public owner;
+    string public campaignHandle;
     uint public startDate;
     uint public endDate;
     uint public duration;
@@ -58,8 +62,8 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     /// @notice Optimistic Oracle Interface
     OptimisticOracleV2Interface public oo;
     bytes32 private identifier = bytes32("YES_OR_NO_QUERY"); // Use the yes no idetifier
-    IERC20 public ooBond; // Use Görli WETH as the bond currency.
-    uint256 public ooRewardAmt; // bond reward
+    IERC20 public ooBond; // ERC20 for oracle reward
+    uint256 public ooRewardAmt; // oracle reward amount
     uint256 public ooLiveness; // challenge period
 
     /// @notice Chainlink VRF
@@ -71,6 +75,13 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     uint32 numWords = 1;
     uint256 public randomNum;
     uint256 public requestId;
+
+    /// @notice Chainlink API
+    using Chainlink for Chainlink.Request;
+    string public id;
+    bytes32 private jobId;
+    uint256 private fee;
+    event RequestFirstId(bytes32 indexed requestId, string id);
 
     constructor(
         ISuperfluid _host, address _owner, address _ooAddress ,
@@ -93,6 +104,12 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         COORDINATOR = VRFCoordinatorV2Interface(_vrfCoord);
         subscriptionId = _subId;
         keyHash = _keyHash;
+
+        // Initialise oracle and token for api
+        setChainlinkToken(0x326C977E6efc84E512bB9C30f76E30c160eD06FB);
+        setChainlinkOracle(0xCC79157eb46F5624204f47AB42b3906cAA40eaB7);
+        jobId = '7d80a6386ef543a3abb52817f6707e3b';
+        fee = (1 * LINK_DIVISIBILITY) / 10;
     }
 
     /* * * * * * * * * * * * * * * * */
@@ -126,13 +143,15 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     function commenceCampaign(
         ISuperToken _token, uint _amount, uint _maxAmt,
         uint _startDate, uint _endDate, uint _duration,
-        IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness
+        IERC20 _oracleBond, uint _oracleReward, uint _oracleLiveness,
+        string calldata _campaignHandle
     ) external {
-        require(_endDate >= _startDate + 86400, "End date must be at least 1 day after start");
+        require(_endDate >= _startDate + 600, "End date must be at least 1 day after start"); // change to 86400 for actual
         if (msg.sender != owner) revert Unauthorized();
         // Deposit reward
         _token.transferFrom(msg.sender, address(this), _amount);
         // Initialise parameters of campaign, calculate flow rate
+        campaignHandle = _campaignHandle;
         perParticipant = _maxAmt;
         maxParticipants = _amount / _maxAmt;
         startDate = _startDate;
@@ -156,8 +175,6 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         require(numParticipants < maxParticipants, "Campaign is fully subscribed");
         require(participantDetails[msg.sender].blacklist == false);
         cfaV1.createFlow(msg.sender, rewardToken, flowRate);
-        // Get current units subscriber holds
-        (, , uint256 currentUnitsHeld, ) = idaV1.getSubscription(rewardToken, address(this), INDEX_ID, msg.sender);
         // increment participants and record details
         participantDetails[msg.sender].index = participantIndex;
         participantDetails[msg.sender].registerTime = block.timestamp;
@@ -190,25 +207,25 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     /* * * * * * * * * *  * */
 
     // Submit a data request to the Optimistic oracle.
-    function requestPrice(uint requestTime, string storage _userAccount) internal {
-        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
+    function requestPrice(uint requestTime, string storage _twitterHandle) internal {
+        bytes memory _ancData = bytes(string.concat("Q:Is user @", _twitterHandle , " a legitimate account? A:1 for yes. 0 for no."));
         // make request to Optimistic oracle
-        oo.requestPrice(identifier, requestTime, ancillaryData, ooBond, ooRewardAmt);
-        oo.setCustomLiveness(identifier, requestTime, ancillaryData, ooLiveness);
+        oo.requestPrice(identifier, requestTime, _ancData, ooBond, ooRewardAmt);
+        oo.setCustomLiveness(identifier, requestTime, _ancData, ooLiveness);
     }
 
     // Settle the request once it's gone through the liveness period. This acts to finalize the voted on outcome.
-    function settleRequests(uint requestTime, string calldata  _userAccount) public {
-        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
-        oo.settle(address(this), identifier, requestTime, ancillaryData);
+    function settleRequests(uint requestTime, string calldata _twitterHandle) public {
+        bytes memory _ancData = bytes(string.concat("Q:Is user @", _twitterHandle , " a legitimate account? A:1 for yes. 0 for no."));
+        oo.settle(address(this), identifier, requestTime, _ancData);
     }
 
     // Fetch the resolved price from Optimistic oracle and kick fake users.
-    function getResultAndDelete(uint requestTime, string calldata _userAccount) public {
-        bytes memory ancillaryData = bytes(string.concat("Q:Is user ", _userAccount , " a legitimate account? A:1 for yes. 0 for no."));
-        int256 outcome = oo.getRequest(address(this), identifier, requestTime, ancillaryData).resolvedPrice;
+    function getResultAndDelete(uint requestTime, string calldata _twitterHandle) public {
+        bytes memory _ancData = bytes(string.concat("Q:Is user @", _twitterHandle , " a legitimate account? A:1 for yes. 0 for no."));
+        int256 outcome = oo.getRequest(address(this), identifier, requestTime, _ancData).resolvedPrice;
         if (outcome == int256(1)) {
-            address faker = twitterToAddress[_userAccount];
+            address faker = twitterToAddress[_twitterHandle];
             deleteSubscriber(faker);
         }
     }
@@ -256,10 +273,12 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         }
     }
 
+    /// @notice VRF to get random number for time of check
     function requestRandomWords() internal {
         requestId = COORDINATOR.requestRandomWords(keyHash, subscriptionId, requestConfirmations, callbackGasLimit, numWords);
     }
 
+    /// @notice VRF to callback when number is ready
     function fulfillRandomWords(uint256 /* requestId */, uint256[] memory _randomNum) internal override {
         // find a random num between 1 and 24 hours
         // randomNum = (_randomNum[0] % 86400) + 3600;
@@ -267,21 +286,51 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
         randomNum = (_randomNum[0] % 600) + 300;
     }
 
+    /// @notice Connect API function to call DB linked fn
+    function requestFirstId() public returns (bytes32 _requestId) {
+        Chainlink.Request memory req = buildChainlinkRequest(jobId, address(this), this.fulfill.selector);
+        // replace url with mongo connected one
+        req.add('get', string.concat('https://nodeproofofloyalty.herokuapp.com/twitterapi/getunmatched?handle=', campaignHandle));
+        req.add('path', 'name');
+        // Sends the request
+        return sendChainlinkRequest(req, fee);
+    }
+
+    /// @notice Connect API fulfill function
+    function fulfill(bytes32 _requestId, string memory _id) public recordChainlinkFulfillment(_requestId) {
+        emit RequestFirstId(_requestId, _id);
+        id = _id;
+        strings.slice memory s = id.toSlice();
+        strings.slice memory delim = ",".toSlice();
+        string[] memory parts = new string[](s.count(delim) + 1);
+        for (uint i=0; i<parts.length; i++) {
+            parts[i] = s.split(delim).toString();
+            // string memory acct = parts[i];
+            // address faker = twitterToAddress[acct];
+            deleteSubscriber(twitterToAddress[parts[i]]);
+        }
+    }
+
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
-        address[] memory streamEnded = checkStreamEnd();
-        upkeepNeeded = streamEnded.length > 0 || block.timestamp >= nextCheck;
-        performData = abi.encode(streamEnded);
-        return (upkeepNeeded, performData);
+        if (block.timestamp >= nextCheck && nextCheck >= 0) {
+            return (true, '');
+        } else {
+            address[] memory streamEnded = checkStreamEnd();
+            // upkeepNeeded = streamEnded.length > 0;
+            // performData = abi.encode(streamEnded);
+            return (streamEnded.length > 0, abi.encode(streamEnded));
+        }
     }
 
     function performUpkeep(bytes calldata performData) external override {
-        if (block.timestamp >= nextCheck) {
+        if (block.timestamp >= nextCheck && nextCheck >= 0) {
             nextCheck += randomNum;
             requestRandomWords();
-            // call twitter
+            // call twitter and get response
+            requestFirstId();
         } else {
-            address[] memory streamEnded = abi.decode(performData, (address[]));
-            endSubscription(streamEnded);
+            // address[] memory streamEnded = abi.decode(performData, (address[]));
+            endSubscription(abi.decode(performData, (address[])));
         }
     }
 
@@ -289,11 +338,18 @@ contract ProofOfLoyalty is KeeperCompatibleInterface, VRFConsumerBaseV2, Chainli
     /* ADMIN FUNCTIONS */
     /* * * * * * * * * */
 
-    /// @notice Withdraw funds from the contract.
+    /// @notice Withdraw supertokens from the contract.
     /// @param token Token to withdraw. @param amount Amount to withdraw.
     function withdrawFunds(ISuperToken token, uint256 amount) external {
         if (msg.sender != owner) revert Unauthorized();
         token.transfer(msg.sender, amount);
+    }
+
+    /// @notice Withdraw link from contract.
+    function withdrawLink() external {
+        if (msg.sender != owner) revert Unauthorized();
+        LinkTokenInterface link = LinkTokenInterface(chainlinkTokenAddress());
+        require(link.transfer(msg.sender, link.balanceOf(address(this))), 'Unable to transfer');
     }
 
     /// @notice Transfer ownership.
