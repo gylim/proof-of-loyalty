@@ -20,23 +20,23 @@ async function main() {
 
     const signers = await hre.ethers.getSigners();
 
-    const mvtx = await sf.loadSuperToken("0xBE2C9FcDA2acD12D8cc5dE053c10d85b78a4027C");
-    const symbol = await mvtx.symbol({providerOrSigner: provider});
+    const superToken = await sf.loadSuperToken("0x0649cEc7f0EE517C7b422689cB9375b18B4AD3FA");
+    const symbol = await superToken.symbol({providerOrSigner: provider});
 
-    // approve 50 mvt tokens to mvtx
-    const mvtApprove = mvtx.approve({
-        receiver: "0x9c3cf4d4cb1d0476a871a49a4195e3351fffe5bf",
-        amount: ethers.utils.parseEther("50")
+    // approve amount tokens to superToken
+    const stApprove = superToken.approve({
+        receiver: "0x96046328135f3aFC46cC8a82CA9E472f5cE1E2Ff", //
+        amount: ethers.utils.parseEther("300000")
     });
 
     // print tx receipt
-    await mvtApprove.exec(signers[0]).then(function (tx) {
+    await stApprove.exec(signers[0]).then(function (tx) {
         console.log(`You've just successfully approved the address to spend 50 ${symbol}.
         Tx Hash: ${tx.hash}`)
    })
 
-    // check allowance of mvtx
-    await mvtx.allowance({
+    // check allowance of superToken
+    await superToken.allowance({
         owner: signers[0].address,
         spender: "0x9c3cf4d4cb1d0476a871a49a4195e3351fffe5bf",
         providerOrSigner: provider

@@ -12,6 +12,7 @@ function App() {
   const [currentNetwork, setCurrentNetwork] = useState("");
   const [PoLContract, setPoLContract] = useState(null);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [endDate, setEndDate] = useState("");
 
   const contractAddress = "0x9C3cF4D4Cb1D0476A871A49A4195E3351fffe5Bf";
 
@@ -21,7 +22,6 @@ function App() {
       setCurrentNetwork(window.ethereum.networkVersion);
     }
   }, []);
-
 
 
   useEffect(() => {
