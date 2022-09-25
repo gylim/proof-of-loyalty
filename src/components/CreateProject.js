@@ -47,7 +47,6 @@ export default function CreateProject(props) {
       // props.showToast("error", resData.msg);
       return;
     } // Has Error, Handled At Common Controller
-    handleClose();
     props.saved();
     // TODO: Call CommenceCampaign API
     // const provider = new ethers.providers.JsonRpcProvider(
@@ -81,7 +80,7 @@ export default function CreateProject(props) {
 
   return (
     <>
-      <Button variant="dark" onClick={toggleModal}>Create Project</Button>
+      <Button onClick={toggleModal}>createProject</Button>
       <Modal
         show={showModal}
         onHide={handleClose}
