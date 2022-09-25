@@ -24,7 +24,7 @@ export default function ProjectsList(props) {
         return (
 
             // <div direction="horizontal" gap={20}>
-            <div className='dashboardListing'>
+            <div className='dashboardListing' key={x._id}>
                 <Card style={{ width: '20rem', borderRadius: '2rem' }}>
                     {/* <Card.Img src="https://picsum.photos/seed/picsum/400/300" alt="Card image" /> */}
                     {/* <Card.ImgOverlay> */}
