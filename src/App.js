@@ -59,16 +59,19 @@ function App() {
 
   return (
     <>
-      <div className='container'>
+      <div className='container center'>
         <br />
         {isWalletInstalled && !account ?
           (<Button onClick={connectWallet}>Connect Wallet</Button>) :
           (!account ? (<p>Install MetaMask</p>) : "")}
-        <h1>Proof of Loyalty</h1>
-        <h2>Build a community of true fans</h2>
-        <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
-        <p>Your current account is: {account}</p>
-        <p>Your current network ID is: {currentNetwork}</p>
+        <div className="container padding">
+          <h1>Proof of Loyalty</h1>
+          <h2>Build a community of true fans</h2>
+          <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
+          <p>Your current account is: {account}</p>
+          <p>Your current network ID is: {currentNetwork}</p>
+        </div>
+
 
         <CreateProject
           polContract={PoLContract}
@@ -78,9 +81,9 @@ function App() {
           }} />
         {/* {JSON.stringify(projectsList)} */}
         <div className="projectListwrapper">
-        <ProjectsList projectsList={projectsList} />
+          <ProjectsList projectsList={projectsList} />
         </div>
-      
+
       </div>
 
     </>
