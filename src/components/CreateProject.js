@@ -80,7 +80,7 @@ export default function CreateProject(props) {
 
   return (
     <>
-      <Button onClick={toggleModal}>createProject</Button>
+      <Button variant="dark" onClick={toggleModal}>Create Project</Button>
       <Modal
         show={showModal}
         onHide={handleClose}
