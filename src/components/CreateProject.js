@@ -2,7 +2,9 @@
 import React, { useEffect, useState, useContext } from "react";
 import { Button, Modal, Form, Row, Col } from 'react-bootstrap';
 import { useForm, useFieldArray } from "react-hook-form";
-import { utils } from "ethers";
+// import { Framework } from "@superfluid-finance/sdk-core";
+import { ethers, utils } from "ethers";
+
 
 // ISuperToken _token, uint _amount, uint _maxAmt,
 //   uint _startDate, uint _endDate, uint _duration,
@@ -18,6 +20,9 @@ export default function CreateProject(props) {
       startDate: Date.now(),
       endDate: null,
       duration: 90,
+      oracleReward: 0.1,
+      oracleLiveness: 90
+
     }
   });
 
@@ -27,6 +32,28 @@ export default function CreateProject(props) {
 
   const onSubmit = async (data) => {
     console.log("create Project payload", data);
+
+    // TODO: Call CommenceCampaign API
+    // const provider = new ethers.providers.JsonRpcProvider(
+    //   // process.env.GOERLI_URL
+    // )
+    // debugger;
+    // const sf = await Framework.create({
+    //   networkName: "goerli",
+    //   provider
+    // });
+    // const lyt = await sf.loadSuperToken("0x0649cEc7f0EE517C7b422689cB9375b18B4AD3FA");
+    // const res = await props.polContract.commenceCampaign(
+    //   lyt,
+    //   ethers.utils.parseEther(data.amount.toString()),
+    //   ethers.utils.parseEther(data.maxAmt.toString()),
+    //   data.startDate,
+    //   data.endDate, // convert to s
+    //   data.duration, // s
+    //   //_oracleBond, ="0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6"
+    //   _oracleReward,
+    //   _oracleLiveness
+    // )
   };
 
   function toggleModal() {
@@ -78,6 +105,17 @@ export default function CreateProject(props) {
               <Form.Group as={Col}>
                 <Form.Label>Campaign End Date</Form.Label>
                 <Form.Control {...register("endDate", { required: true })} defaultValue='' type="date" placeholder="" />
+              </Form.Group>
+            </Row>
+            <Row>
+              <h5>Social Delegation (Powered by UMA)</h5>
+              <Form.Group as={Col}>
+                <Form.Label>Task Reward</Form.Label>
+                <Form.Control {...register("oracleReward", { required: true })} defaultValue='' type="number" placeholder="" />
+              </Form.Group>
+              <Form.Group as={Col}>
+                <Form.Label>Task Duration</Form.Label>
+                <Form.Control {...register("oracleLiveness", { required: true })} defaultValue='' type="number" placeholder="" />
               </Form.Group>
             </Row>
 
