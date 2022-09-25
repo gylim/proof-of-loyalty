@@ -77,7 +77,10 @@ function App() {
             fetchProjects();
           }} />
         {/* {JSON.stringify(projectsList)} */}
+        <div className="projectListwrapper">
         <ProjectsList projectsList={projectsList} />
+        </div>
+      
       </div>
 
     </>

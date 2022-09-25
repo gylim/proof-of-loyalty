@@ -10,8 +10,12 @@ export default function ProjectsList(props) {
 
     let projects = props?.projectsList?.map(x => {
         return (
-            <Stack gap={3}>
-                <Card style={{ width: '18rem' }}>
+            // <div direction="horizontal" gap={20}>
+            <div className='dashboardListing'>
+                <Card style={{ width: '20rem', borderRadius:'2rem' }}>
+                {/* <Card.Img src="https://picsum.photos/seed/picsum/400/300" alt="Card image" /> */}
+                {/* <Card.ImgOverlay> */}
+                    
                     <Card.Body>
                         <Card.Title>{x.projectName}</Card.Title>
                         <Card.Subtitle className="mb-2 text-muted">Follow {x.twitterID}</Card.Subtitle>
@@ -21,11 +25,13 @@ export default function ProjectsList(props) {
                         </Card.Text>
                         <Button onClick={() => { }}>Participate</Button>
                     </Card.Body>
+                    {/* </Card.ImgOverlay> */}
                 </Card>
-            </Stack >
+                </div>
+            // </div >
         )
     })
     return (
-        <div className='container'>{projects}ds</div>
+        <div className='container'>{projects}</div>
     )
 }
