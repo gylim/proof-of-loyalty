@@ -5,6 +5,7 @@ import addressList from "./addressList";
 import Button from 'react-bootstrap/Button';
 import "./App.css";
 import CreateProject from "./components/CreateProject";
+import ProjectsList from "./components/ProjectsList";
 import { fetchApiCall } from "./helpers/apiController";
 
 function App() {
@@ -75,7 +76,8 @@ function App() {
           saved={() => {
             fetchProjects();
           }} />
-        {JSON.stringify(projectsList)}
+        {/* {JSON.stringify(projectsList)} */}
+        <ProjectsList projectsList={projectsList} />
       </div>
 
     </>
