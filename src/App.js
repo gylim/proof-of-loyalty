@@ -5,6 +5,7 @@ import addressList from "./addressList";
 import Button from 'react-bootstrap/Button';
 import "./App.css";
 import CreateProject from "./components/CreateProject";
+import { fetchApiCall } from "./helpers/apiController";
 
 function App() {
   const [account, setAccount] = useState("");
@@ -12,6 +13,7 @@ function App() {
   const [currentNetwork, setCurrentNetwork] = useState("");
   const [PoLContract, setPoLContract] = useState(null);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [projectsList, setProjectsList] = useState([]);
   const [endDate, setEndDate] = useState("");
 
   const contractAddress = "0x9C3cF4D4Cb1D0476A871A49A4195E3351fffe5Bf";
@@ -31,6 +33,7 @@ function App() {
       setPoLContract(new Contract(contractAddress, PoLABI.abi, signer));
     }
     initPoL();
+    fetchProjects();
   }, [account]);
 
   async function connectWallet() {
@@ -41,6 +44,17 @@ function App() {
       })
       .catch((error) => { alert("Something went wrong") });
   }
+
+  const fetchProjects = async () => {
+    // TODO: To call SmartContract to fetch all project pools(getAllProjects)
+    const resData = await fetchApiCall("/project");
+    if (resData.error) {
+      notify(resData.msg);
+      return;
+    } // Has Error, Handled At Common Controller
+    setProjectsList(resData);
+    console.log("update projects list: ", projectsList);
+  };
 
   return (
     <>
@@ -55,7 +69,13 @@ function App() {
         <p>Your current account is: {account}</p>
         <p>Your current network ID is: {currentNetwork}</p>
 
-        <CreateProject polContract={PoLContract} account={account} />
+        <CreateProject
+          polContract={PoLContract}
+          account={account}
+          saved={() => {
+            fetchProjects();
+          }} />
+        {JSON.stringify(projectsList)}
       </div>
 
     </>

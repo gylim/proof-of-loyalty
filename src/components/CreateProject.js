@@ -4,6 +4,7 @@ import { Button, Modal, Form, Row, Col } from 'react-bootstrap';
 import { useForm, useFieldArray } from "react-hook-form";
 // import { Framework } from "@superfluid-finance/sdk-core";
 import { ethers, utils } from "ethers";
+import { submitApiCall } from "../helpers/apiController";
 
 
 // ISuperToken _token, uint _amount, uint _maxAmt,
@@ -15,14 +16,15 @@ export default function CreateProject(props) {
   const [showModal, setModal] = useState(false);
   const { register, handleSubmit, watch, formState: { errors } } = useForm({
     defaultValues: {
+      projectName: 'your great project',
+      twitterID: 1234567,
       amount: 100,
       maxAmt: 1,
-      startDate: Date.now(),
-      endDate: null,
+      startDate: '25-09-2022',
+      endDate: '29-09-2022',
       duration: 90,
-      oracleReward: 0.1,
+      oracleReward: 1,
       oracleLiveness: 90
-
     }
   });
 
@@ -32,7 +34,20 @@ export default function CreateProject(props) {
 
   const onSubmit = async (data) => {
     console.log("create Project payload", data);
-
+    console.log(props?.account);
+    const payload = { ...data, owner_pk: props?.account };
+    const resData = await submitApiCall(
+      "/project/create",
+      props?.account,
+      // wallet.publicKey.toBase58(),
+      payload
+    );
+    if (resData.error) {
+      alert(resData.msg);
+      // props.showToast("error", resData.msg);
+      return;
+    } // Has Error, Handled At Common Controller
+    props.saved();
     // TODO: Call CommenceCampaign API
     // const provider = new ethers.providers.JsonRpcProvider(
     //   // process.env.GOERLI_URL
@@ -79,6 +94,18 @@ export default function CreateProject(props) {
         </Modal.Header>
         <Form onSubmit={handleSubmit(onSubmit)}>
           <Modal.Body>
+            <Row>
+              <Form.Group as={Col}>
+                <Form.Label>Project name</Form.Label>
+                <Form.Control {...register("projectName", { required: true })} type="string" placeholder="" />
+              </Form.Group>
+            </Row>
+            <Row>
+              <Form.Group as={Col}>
+                <Form.Label>Twitter Account to Follow</Form.Label>
+                <Form.Control {...register("twitterID", { required: true })} type="number" placeholder="@Elonmusk" />
+              </Form.Group>
+            </Row>
             <Row>
               <Form.Group as={Col}>
                 <Form.Label>Project Budget</Form.Label>
