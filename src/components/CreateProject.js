@@ -147,7 +147,7 @@ export default function CreateProject(props) {
             </Row>
 
           </Modal.Body>
-          <Modal.Footer className="text-center">
+          <Modal.Footer className="center">
             <Button variant="dark" type="submit" size="lg" >Create</Button>
           </Modal.Footer>
           {/* <pre>

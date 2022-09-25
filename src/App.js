@@ -3,6 +3,7 @@ import { Contract, ethers } from "ethers";
 import PoLABI from "../artifacts/contracts/ProofOfLoyalty.sol/ProofOfLoyalty.json";
 import addressList from "./addressList";
 import Button from 'react-bootstrap/Button';
+import Badge from 'react-bootstrap/Badge';
 import "./App.css";
 import CreateProject from "./components/CreateProject";
 import ProjectsList from "./components/ProjectsList";
@@ -63,13 +64,16 @@ function App() {
         <br />
         {isWalletInstalled && !account ?
           (<Button onClick={connectWallet}>Connect Wallet</Button>) :
-          (!account ? (<p>Install MetaMask</p>) : "")}
+          (!account ? (<p>Install MetaMask</p>) :
+            <> <p>Your current account is:</p>
+              <Badge pill bg="light" text="dark">
+                {account}
+              </Badge>{' '}</>
+          )}
         <div className="container padding">
           <h1>Proof of Loyalty</h1>
           <h2>Build a community of true fans</h2>
           <p>Reward your community with airdrops that vest linearly while weeding out bots and farm-and-dump behaviour</p>
-          <p>Your current account is: {account}</p>
-          <p>Your current network ID is: {currentNetwork}</p>
         </div>
 
 

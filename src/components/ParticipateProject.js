@@ -17,7 +17,6 @@ export default function ParticipateProject(props) {
 
     return (
         <>
-            Participate Project
             <Modal
                 show={props.showModal}
                 onHide={() => { props.closeModal() }}
