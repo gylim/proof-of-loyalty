@@ -7,12 +7,36 @@ import { ethers, utils } from "ethers";
 import { submitApiCall } from "../helpers/apiController";
 
 export default function ParticipateProject(props) {
+    const [status, setStatus] = useState()
+    const [twitterID, setTwitterID] = useState()
 
     const joinProject = async (data) => {
         console.log("create Project payload", data);
     }
 
     const verifyTwitter = async () => {
+        // useEffect(() => {
+            setStatus("loading")
+            fetch(`https://nodeproofofloyalty.herokuapp.com/twitterauth/login`)
+                // .then((response) => response.json())
+                .then((userinfo) => {
+                    console.log("userinfo",userinfo)
+                    setTwitterID(userinfo.id)
+                    setStatus("success")
+                    console.log("userinfo.id",userinfo.id)
+                })
+                .catch((error) => {
+                    console.error(error)
+                    setStatus("error")
+                })
+    
+        // }, []);
+    }
+        if (status === "loading") {
+            return <div>Loading...</div>
+        }
+        if (status === "error") {
+            return <div>Not Loading...</div>
 
     }
 
